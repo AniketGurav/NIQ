@@ -1,0 +1,735 @@
+\documentclass[11pt]{article}
+
+
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{comment}
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    columns=flexible,
+    keywordstyle=\color{blue}\bfseries,
+    stringstyle=\color{red},
+    commentstyle=\color{green!50!black},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    stepnumber=1,
+    numbersep=5pt,
+    frame=single,
+    tabsize=4,
+    captionpos=b
+}\usepackage[colorlinks=true, linkcolor=blue]{hyperref}
+
+\geometry{margin=1in}
+
+\title{Analysis and Nutritional Metadata Classification on Open Food Facts Dataset}
+\author{Aniket Gurav}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+\newpage
+
+\begin{comment}
+\section{Introduction}
+\section{Missing Value Analysis}
+\section{Exploratory Data Analysis}
+\section{Visual Exploration of Product Metadata}
+\section{Nutritional Health Score Analysis}
+\section{Food Category Tagging Pipeline}
+\section{Nutritional Entity Classification Model}
+\section{Model Evaluation and Discussion}
+\section{Conclusion and Future Work}
+\end{comment}
+\newpage
+
+\section{Introduction}
+
+This project focuses on developing a machine learning pipeline for food product classification using real-world data from the Open Food Facts database. The dataset contains information about packaged food items including their names, ingredient lists, nutritional values, and standardized category labels.
+
+A typical example from the dataset is the product \textit{Chocolat noir 85\% cacao – J.D. Gross}.\footnote{\url{https://world.openfoodfacts.org/product/20995553/chocolat-noir-85-cacao-j-d-gross}} This entry includes a product name, detailed ingredients, NutriScore, NOVA group, and high-level food categories such as \texttt{pnns\_groups\_1} and \texttt{pnns\_groups\_2}.
+
+The choice of this dataset is motivated by its open access, real-world relevance, and rich combination of structured and unstructured information. These properties make it an ideal source for exploring natural language processing, feature engineering, and deep learning methods in a nutrition-focused setting.
+
+
+
+\section{Missing Value Analysis}
+
+\subsection{Dataset Overview}
+
+The dataset used in this analysis is derived from the Open Food Facts project, downloaded as a gzipped TSV file (\texttt{en.openfoodfacts.org.products.csv.gz}). The raw dataset contains \textbf{3,833,367 records} and \textbf{209 columns} representing various product attributes, including nutritional values, categories, brands, and ingredients.
+
+A cleaning process was applied to remove columns with more than 90\% missing data. The filtered output was saved as \texttt{cleaned\_openfoodfacts.csv} and used for all further modeling and analysis tasks.
+
+\subsection{Column Inventory}
+
+Each record in the cleaned dataset contains over 73 columns after cleaning, with data types ranging from strings and integers to floating-point values. Key columns include:
+
+\begin{itemize}
+    \item \texttt{product\_name} -- Name of the food product.
+    \item \texttt{ingredients\_text} -- Unstructured text listing the ingredients.
+    \item \texttt{pnns\_groups\_1}, \texttt{pnns\_groups\_2} -- High-level and sub-level food category labels.
+    \item \texttt{energy\_100g}, \texttt{protein\_100g}, etc. -- Nutritional information per 100g.
+\end{itemize}
+
+\subsection{Missing Value Summary}
+
+To assess data completeness, a column-wise missing value analysis was performed. The percentage of missing values and data types were computed for each column. The table below summarizes the top features with missing data:
+
+\begin{longtable}{@{}lll@{}}
+\toprule
+\textbf{Column} & \textbf{Missing \%} & \textbf{Data Type} \\
+\midrule
+\endfirsthead
+\multicolumn{3}{c}%
+{{\bfseries \tablename\ \thetable{} -- continued from previous page}} \\
+\toprule
+\textbf{Column} & \textbf{Missing \%} & \textbf{Data Type} \\
+\midrule
+\endhead
+\midrule \multicolumn{3}{r}{{Continued on next page}} \\
+\endfoot
+\bottomrule
+\endlastfoot
+\texttt{ingredients\_text} & 70.65\% & string \\
+\texttt{pnns\_groups\_1} & 0.57\% & string \\
+\texttt{pnns\_groups\_2} & 0.57\% & string \\
+\texttt{product\_name} & 6.49\% & string \\
+\texttt{energy\_100g} & 25.88\% & float \\
+\texttt{fat\_100g} & 26.68\% & float \\
+\texttt{proteins\_100g} & 26.55\% & float \\
+\texttt{fiber\_100g} & 64.31\% & float \\
+\texttt{image\_url} & 24.90\% & string \\
+\texttt{nova\_group} & 73.92\% & float \\
+\texttt{vitamin-c\_100g} & 94.09\% & float \\
+\texttt{potassium\_100g} & 94.91\% & float \\
+\texttt{zinc\_100g} & 99.34\% & float \\
+\texttt{omega-3-fat\_100g} & 99.62\% & float \\
+\end{longtable}
+
+
+
+\subsection{Insights}
+
+From the missing value report, we observe that:
+
+\begin{itemize}
+    \item Core metadata like \texttt{product\_name} and \texttt{pnns\_groups\_1/2} are relatively complete.
+    \item Key nutritional columns have moderate missingness (25--30\%).
+    \item Many micronutrients (e.g., vitamins, minerals) are sparsely populated (over 90\% missing).
+    \item \texttt{ingredients\_text}, though vital for our feature extraction, has roughly 70\% missing data, prompting the need for row-level filtering.
+\end{itemize}
+
+These insights help justify the choice of focusing on ingredients-based modeling and motivate the need for feature engineering to address sparse nutrition data.
+
+\section{Exploratory Analysis of Product Metadata}
+
+To better understand the structure and distribution of product metadata, we performed value count analysis on four key columns: \texttt{categories}, \texttt{brands}, \texttt{countries}, and \texttt{main\_category}. These fields contain human-readable descriptions that help contextualize each product's origin, branding, and classification.
+
+\subsection{Top Occurring Values}
+
+The top 10 values in each of the four columns were extracted and visualized in a combined grid (Figure~\ref{fig:distplot}). These distributions offer insight into:
+
+\begin{itemize}
+    \item The most frequent product categories and subcategories.
+    \item Brand concentration — whether a few brands dominate the dataset.
+    \item Geographical spread of the product origins.
+\end{itemize}
+
+
+
+
+\section{Visual Exploration of Product Metadata and Label Distributions}
+
+\subsection{Metadata Distributions}
+
+Figure~\ref{fig:metadata_dist} shows the top 10 most frequent values for four key metadata columns: \texttt{categories}, \texttt{brands}, \texttt{countries}, and \texttt{main\_category}. These fields describe product classification, origin, and branding at a higher level.
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.9\textwidth]{top_10_metadata_distribution.png}
+    \caption{Top 10 value distributions for key metadata columns.}
+    \label{fig:metadata_dist}
+\end{figure}
+
+\textbf{Insights:}
+\begin{itemize}
+    \item Certain brands and countries dominate the dataset, indicating a potential bias toward well-known companies or markets.
+    \item \texttt{categories} and \texttt{main\_category} fields are wide and varied but often redundant, which limits their value in direct classification tasks.
+    \item These fields are useful for exploratory purposes, but inconsistent formats and missing values make them less suited for supervised learning without heavy preprocessing.
+\end{itemize}
+
+\subsection{Class Distribution in Labels}
+
+Figure~\ref{fig:label_dist} presents the class frequency distribution for the two prediction targets: \texttt{pnns\_groups\_1} (broad category) and \texttt{pnns\_groups\_2} (fine-grained subcategory).
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.9\textwidth]{label_distributions.png}
+    \caption{Class distribution of \texttt{pnns\_groups\_1} and top 20 of \texttt{pnns\_groups\_2}.}
+    \label{fig:label_dist}
+\end{figure}
+
+\textbf{Insights:}
+\begin{itemize}
+    \item The label distributions are imbalanced — a few categories dominate while others are underrepresented.
+    \item This imbalance increases the classification challenge and motivates the use of weighted losses or stratified sampling during training.
+    \item \texttt{pnns\_groups\_1} shows a manageable number of classes, suitable for high-level classification.
+    \item \texttt{pnns\_groups\_2}, while more detailed, introduces more variability and requires stronger semantic signal from features (like ingredients).
+\end{itemize}
+
+These visualizations help bridge the gap between exploratory analysis and downstream modeling decisions.
+
+
+\subsection{Connection to Modeling Strategy}
+
+These insights help reinforce our choice of focusing on \texttt{ingredients\_text} and \texttt{pnns\_groups\_1/2}. Although metadata columns like \texttt{brands} and \texttt{countries} are informative, they are often categorical, sparse, or inconsistent in granularity. In contrast, \texttt{ingredients\_text} provides a standardized text feature from which multiple semantic properties (e.g., nutrients, additives, flavors) can be extracted and modeled.
+
+\begin{comment}
+\subsection{Suggested Further Explorations}
+
+To support the modeling task more directly, we additionally propose:
+
+\begin{itemize}
+    \item \textbf{Distribution of tag-based features} (e.g., \texttt{num\_NUT}, \texttt{num\_FLA}) across the dataset.
+    \item \textbf{Class imbalance visualization} for \texttt{pnns\_groups\_1} and \texttt{pnns\_groups\_2}.
+    \item \textbf{Correlation analysis} between tag counts and predicted classes.
+\end{itemize}
+\end{comment}
+\section{Nutritional and Health Score Analysis}
+
+To complement the ingredient-based feature extraction, we explored structured nutritional and health-related attributes available in the dataset: \texttt{energy\_100g}, \texttt{nova\_group}, and \texttt{nutriscore\_grade}. These variables provide quantitative insights into the nutritional profile, processing level, and overall healthiness of food products.
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.95\textwidth]{combined_exploration_plots.png}
+    \caption{Combined visualization: (Top Left) Distribution of energy per 100g, (Top Right) Energy variation by food category, (Bottom Left) NOVA processing group distribution, (Bottom Right) NutriScore grade distribution.}
+    \label{fig:combined_nutrition}
+\end{figure}
+
+\subsection*{Insights}
+
+\begin{itemize}
+    \item \textbf{Energy Distribution:} The majority of food products have energy values concentrated below 1000 kcal per 100g. However, a long tail with higher values suggests the presence of highly caloric and possibly processed foods.
+
+    \item \textbf{Energy by Category:} The boxplot reveals wide variation in \texttt{energy\_100g} across \texttt{pnns\_groups\_1}. As expected, categories such as \texttt{Fat and sauces}, \texttt{Sugary snacks}, and \texttt{Composite foods} exhibit higher energy density, while \texttt{Fruits and vegetables} remain on the lower end.
+
+    \item \textbf{NOVA Group Distribution and Mean Energy:} The NOVA classification distinguishes foods by processing level:
+    \begin{itemize}
+        \item NOVA 1 (Unprocessed): 912.1 kcal/100g
+        \item NOVA 2 (Processed ingredients): 2573.8 kcal/100g
+        \item NOVA 3 (Processed foods): 1343.7 kcal/100g
+        \item NOVA 4 (Ultra-processed): 1.03 $\times$ 10\textsuperscript{11} kcal/100g (indicative of extreme outliers or errors)
+    \end{itemize}
+    These values show a clear rise in energy with processing, reinforcing the importance of food processing as a predictive and health-related feature.
+
+    \item \textbf{NutriScore Grade vs. Food Group:} Cross-tabulation between \texttt{nutriscore\_grade} and \texttt{pnns\_groups\_1} shows that:
+    \begin{itemize}
+        \item Grades A and B are prevalent in \texttt{Fruits and vegetables} and \texttt{Milk and dairy products}.
+        \item Grades D and E dominate in \texttt{Sugary snacks}, \texttt{Fat and sauces}, and \texttt{Salty snacks}.
+        \item \texttt{Beverages} and \texttt{Composite foods} are more evenly distributed across the score range.
+    \end{itemize}
+    This alignment validates the classification structure and suggests that health labels could serve as evaluation baselines.
+\end{itemize}
+
+These insights reinforce the relationship between the input features (\texttt{ingredients\_text}, tag counts) and nutritional outcomes, thus supporting the supervised classification approach used in this study.
+
+\newpage
+
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    columns=flexible,
+    keywordstyle=\color{blue}\bfseries,
+    stringstyle=\color{red},
+    commentstyle=\color{green!50!black},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    stepnumber=1,
+    numbersep=5pt,
+    frame=single,
+    tabsize=4,
+    captionpos=b
+}
+
+
+%#########################
+\section{Data Preprocessing for Classification and Tagging Tasks}
+\label{sec:preprocessing}
+
+This section outlines the preprocessing pipeline for four tasks: (1) rule-based token tagging, (2) food category classification, (3) nutritional entity tagging, and (4) nutritional attribute prediction. Each task processes the Open Food Facts dataset to extract specific features from the \texttt{ingredients\_text} and related fields, ensuring compatibility with downstream machine learning models. All tasks share a common initial filtering step, followed by task-specific processing.
+
+\subsection{Common Dataset Filtering}
+
+All tasks begin with the Open Food Facts dataset, containing over 3.8 million records. We filter it to 100,000 English-language (United States) food products with non-missing labels, retaining key fields:
+
+\begin{itemize}[noitemsep]
+    \item \texttt{product\_name}: Product name (e.g., ``Jelly Beans'').
+    \item \texttt{ingredients\_text}: Ingredient list (e.g., ``sugar, glucose syrup, gelatin'').
+    \item \texttt{pnns\_groups\_1}, \texttt{pnns\_groups\_2}: Broad and fine-grained category labels (e.g., ``Sugary snacks'', ``Candies'').
+    \item \texttt{countries\_tags}: Country of origin (e.g., ``en:united-states'').
+    \item Nutritional fields (e.g., \texttt{energy\_100g}, \texttt{proteins\_100g}, \texttt{nutriscore\_grade}).
+\end{itemize}
+
+\textbf{Example Row:}
+\begin{quote}
+Product: ``Jelly Beans'', Ingredients: ``sugar, glucose syrup, gelatin'', Labels: ``Sugary snacks'', ``Candies'', Country: ``en:united-states''.
+\end{quote}
+
+\subsection{Rule-Based Token Tagging}
+
+\textbf{Task}: Assign semantic tags (e.g., nutrient, flavor, unit) to each token in \texttt{ingredients\_text} to create structured features.
+
+\textbf{Steps}:
+\begin{itemize}[noitemsep]
+    \item Clean \texttt{ingredients\_text}: Lowercase, remove special characters (e.g., ``*'', ``\&'').
+    \item Tokenize: Split into words using regex (\texttt{\string\b\string\w+\string\b}).
+    \item Tag tokens: Match against curated lexicons (e.g., ``protein'' $\to$ NUT, ``mg'' $\to$ UNI, ``chicken'' $\to$ FLA) or quantity patterns (e.g., ``10'' $\to$ QTY). Unmatched tokens are tagged as ING (ingredient).
+    \item Generate outputs: Token lists, tag lists, word-tag pairs, and tag counts (e.g., \texttt{num\_NUT}, \texttt{num\_FLA}).
+\end{itemize}
+
+\textbf{Tags Used}: Tokens are assigned one of 15 semantic tags based on nutritional and functional roles, derived from sources like USDA FoodData Central and FDA guidelines. The tags are:
+
+\begin{table}[h]
+    \centering
+    \caption{Semantic tags for rule-based token tagging.}
+    \label{tab:tags}
+    \begin{tabular}{ll}
+        \toprule
+        \textbf{Tag} & \textbf{Description and Examples} \\
+        \midrule
+        NUT & Nutrients (e.g., protein, fiber, vitamin D) \\
+        FLA & Flavors (e.g., chicken, beef, salmon) \\
+        ADD & Additives (e.g., stabilizer, lecithin) \\
+        PRE & Preservatives (e.g., sorbic acid, sodium benzoate) \\
+        SWE & Sweeteners (e.g., sucrose, stevia) \\
+        COL & Colorants (e.g., caramel color, annatto) \\
+        MIN & Minerals (e.g., magnesium, selenium) \\
+        PRO & Probiotics (e.g., bifidobacterium, lactobacillus) \\
+        UNI & Units (e.g., mg, g, \%) \\
+        THI & Thickeners (e.g., pectin, xanthan gum) \\
+        ENZ & Enzymes (e.g., lactase, amylase) \\
+        ACI & Acidifiers (e.g., citric acid, lactic acid) \\
+        HUM & Humectants (e.g., glycerol, sorbitol) \\
+        ING & Default for unclassified ingredients (e.g., rice, peas) \\
+        QTY & Quantities (e.g., 10, 0.5) \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\textbf{Expected Data}: Tokens (e.g., [``sugar'', ``gelatin'']), tags (e.g., [``SWE'', ``PRO'']), word-tag pairs (e.g., [``sugar:SWE'', ``gelatin:PRO'']), and tag counts (e.g., \texttt{num\_SWE=1}, \texttt{num\_PRO=1}).
+
+\textbf{Example:}
+\begin{quote}
+Input: ``sugar, gelatin, 10 mg'' $\to$ Tokens: [``sugar'', ``gelatin'', ``10'', ``mg''] $\to$ Tags: [``SWE'', ``PRO'', ``QTY'', ``UNI''] $\to$ Counts: \texttt{num\_SWE=1}, \texttt{num\_PRO=1}, \texttt{num\_QTY=1}, \texttt{num\_UNI=1}.
+\end{quote}
+
+\begin{figure}[H]
+\centering
+\begin{lstlisting}[basicstyle=\ttfamily\small,breaklines=true,columns=flexible,frame=single,xleftmargin=0pt]
++---------------------------------------------+
+| Text Preprocessing Pipeline                 |
+|---------------------------------------------|
+| Input: ingredients_text                     |
+|   e.g., "chicken, protein, citric acid, 10%"|
+|---------------------------------------------|
+|                                             |
+| 1. Cleaning                                 |
+|    - Lowercase                             |
+|    - Strip special chars (*^¨°&~#{[|)      |
+|    Out: Cleaned text                       |
+|        e.g., "chicken, protein, citric acid, 10%" |
+|---------------------------------------------|
+|                                             |
+| 2. Tokenization                             |
+|    - Regex: \b\w+\b                        |
+|    Out: Tokens                             |
+|        e.g., ["chicken", "protein", "citric", "acid", "10"] |
+|---------------------------------------------|
+|                                             |
+| 3. Entity Tagging                           |
+|    - Lexicon lookup (NUT, FLA, ADD, etc.)  |
+|    - Regex for quantities (QTY, UNI)       |
+|    Out: Tags & Word-Tag Pairs              |
+|        Tags: ["FLA", "NUT", "ACI", "ACI", "QTY"] |
+|        Pairs: ["chicken:FLA", "protein:NUT", ...] |
+|---------------------------------------------|
+|                                             |
+| 4. Tag Count Aggregation                    |
+|    - Count tags per product (num_NUT, num_FLA, etc.) |
+|    Out: Tag Count Features                 |
+|        e.g., num_NUT=1, num_FLA=1, num_ACI=2, num_QTY=1 |
+|---------------------------------------------|
+|                                             |
+| Features for Model                          |
+|---------------------------------------------|
+| IN:                                        |
+|  - Tokens -> Input IDs (via vocab)         |
+|    e.g., [23, 45, 67, 68, 12]             |
+|  - Tag Counts (num_NUT, num_FLA, etc.)     |
+|    e.g., [1, 1, 0, 2, 1, ...]             |
+|---------------------------------------------|
+| OUT:                                       |
+|  - Raw ingredients_text (not used directly) |
+|  - Word-Tag Pairs (used for debugging)     |
+|  - Image data (image_nutrition_url)        |
++---------------------------------------------+
+\end{lstlisting}
+\caption{Text preprocessing pipeline for rule-based token tagging, illustrating input cleaning, tokenization, tagging, and feature generation for downstream tasks.}
+\label{fig:tagging_pipeline}
+\end{figure}
+
+\subsection{Food Category Classification}
+
+\textbf{Task}: Predict broad (\texttt{pnns\_groups\_1}) and fine-grained (\texttt{pnns\_groups\_2}) food categories using tokenized text and tag counts.
+
+\textbf{Steps}:
+\begin{itemize}[noitemsep]
+    \item Combine \texttt{product\_name} and \texttt{ingredients\_text} into a unified text field.
+    \item Clean and tokenize: Lowercase, remove punctuation, split into tokens.
+    \item Build vocabulary: Assign indices to tokens, adding \texttt{<pad>} and \texttt{<unk>}.
+    \item Convert tokens to indices: Create \texttt{input\_ids} for model input.
+    \item Encode labels: Convert \texttt{pnns\_groups\_1} and \texttt{pnns\_groups\_2} to numerical IDs.
+    \item Incorporate tag counts: Use \texttt{num\_NUT}, \texttt{num\_FLA}, etc., from rule-based tagging as additional features.
+\end{itemize}
+
+\textbf{Expected Data}: Token indices (e.g., \texttt{input\_ids=[12, 45, 67, 87]}), label IDs (e.g., \texttt{label\_G1=3}, \texttt{label\_G2=15}), and tag count features (e.g., \texttt{[num\_SWE=1, num\_PRO=1, ...]}).
+
+\textbf{Example:}
+\begin{quote}
+Input: ``Jelly Beans, sugar, gelatin'' $\to$ Tokens: [``jelly'', ``beans'', ``sugar'', ``gelatin''] $\to$ \texttt{input\_ids=[23, 24, 12, 87]} $\to$ Labels: \texttt{label\_G1=``Sugary snacks'' (3)}, \texttt{label\_G2=``Candies'' (15)} $\to$ Features: \texttt{[num\_SWE=1, num\_PRO=1, num\_QTY=0, ...]}.
+\end{quote}
+
+\subsection{Nutritional Entity Tagging}
+
+\textbf{Task}: Assign BIO tags (e.g., B-NUT, I-QTY, O) to tokens in \texttt{ingredients\_text} to identify nutritional entities like ``Protein: 10 g''.
+
+\textbf{Steps}:
+\begin{itemize}[noitemsep]
+    \item Load tagged data: Use tokens and tags from rule-based token tagging output.
+    \item Convert to BIO format: Assign B- (beginning), I- (inside), or O (outside) prefixes (e.g., ``sugar cane'' $\to$ [``B-SWE'', ``I-SWE'']).
+    \item Build label vocabulary: Assign indices to BIO tags (e.g., \texttt{B-NUT=0}, \texttt{O=1}).
+    \item Generate inputs: Convert tokens to indices (\texttt{input\_ids}) and tags to label IDs.
+    \item Include tag counts: Use \texttt{num\_NUT}, \texttt{num\_FLA}, etc., as contextual features.
+\end{itemize}
+
+\textbf{Expected Data}: Token indices (e.g., \texttt{input\_ids=[12, 87, 10, 5]}), BIO label IDs (e.g., [0, 1, 2, 3] for [``B-SWE'', ``O'', ``B-QTY'', ``B-UNI'']), and tag counts.
+
+\textbf{Example:}
+\begin{quote}
+Input: ``sugar, gelatin, 10 mg'' $\to$ Tokens: [``sugar'', ``gelatin'', ``10'', ``mg''] $\to$ BIO Tags: [``B-SWE'', ``O'', ``B-QTY'', ``B-UNI''] $\to$ \texttt{input\_ids=[12, 87, 10, 5]}, Label IDs: [0, 1, 2, 3] $\to$ Features: \texttt{[num\_SWE=1, num\_PRO=1, num\_QTY=1, num\_UNI=1]}.
+\end{quote}
+
+\subsection{Nutritional Attribute Prediction}
+
+\textbf{Task}: Predict numerical (e.g., \texttt{energy\_100g}, \texttt{proteins\_100g}) and categorical (e.g., \texttt{nutriscore\_grade}, \texttt{pnns\_groups\_1}) attributes.
+
+\textbf{Steps}:
+\begin{itemize}[noitemsep]
+    \item Combine fields: Merge \texttt{product\_name}, \texttt{ingredients\_text}, and \texttt{categories} into a unified text field.
+    \item Clean and tokenize: Lowercase, remove punctuation, split into tokens.
+    \item Normalize numerical targets: Clip outliers (±3 std), impute NaNs with median, scale using StandardScaler.
+    \item Encode categorical targets: Convert \texttt{nutriscore\_grade}, \texttt{pnns\_groups\_1} to numerical IDs.
+    \item Encode features: Normalize \texttt{additives\_n}, \texttt{serving\_quantity}; encode \texttt{brands}, \texttt{countries\_tags}.
+    \item Incorporate tag counts: Use \texttt{num\_NUT}, \texttt{num\_FLA}, etc., from rule-based tagging.
+    \item Build vocabulary: Convert tokens to indices (\texttt{input\_ids}).
+\end{itemize}
+
+\textbf{Expected Data}: Token indices (e.g., \texttt{input\_ids=[23, 24, 12, 87]}), normalized numerical targets (e.g., \texttt{energy\_100g=0.5}), categorical label IDs (e.g., \texttt{nutriscore\_grade=2}), and features (e.g., \texttt{[additives\_n=0.3, serving\_quantity=1.2, brands\_id=45, num\_SWE=1, ...]}).
+
+\textbf{Example:}
+\begin{quote}
+Input: ``Jelly Beans, sugar, gelatin, categories: candies'' $\to$ Tokens: [``jelly'', ``beans'', ``sugar'', ``gelatin'', ``candies''] $\to$ \texttt{input\_ids=[23, 24, 12, 87, 90]} $\to$ Targets: \texttt{energy\_100g=0.5}, \texttt{proteins\_100g=0.1}, \texttt{nutriscore\_grade=``D'' (3)} $\to$ Features: \texttt{[additives\_n=0.2, serving\_quantity=0.8, brands\_id=45, num\_SWE=1, num\_PRO=1, ...]}.
+\end{quote}
+
+
+\section{Food Category Classification}
+
+\textbf{Task and Motivation}: Predict broad (\texttt{pnns\_groups\_1}, e.g., ``Sugary snacks'') and fine-grained (\texttt{pnns\_groups\_2}, e.g., ``Candies'') food categories to enable automated nutritional categorization. This task leverages \texttt{ingredients\_text} and \texttt{product\_name} to capture semantic patterns, addressing the assignment’s goal of classifying food products using text features.
+
+\textbf{Steps}:
+\begin{itemize}[noitemsep]
+    \item \textit{Text Consolidation}: Concatenate \texttt{product\_name} and \texttt{ingredients\_text} into a unified field.
+    \item \textit{Cleaning and Tokenization}: Lowercase, remove punctuation, and split into tokens using regex (``\string\b\string\w+\string\b'').
+    \item \textit{Vocabulary Construction}: Assign indices to tokens (minimum frequency 5), adding \texttt{<pad>} and \texttt{<unk>} for padding and unknown words.
+    \item \textit{Token Indexing}: Convert tokens to \texttt{input\_ids} (e.g., \texttt{[23, 24, 12, 87]}).
+    \item \textit{Label Encoding}: Map \texttt{pnns\_groups\_1} and \texttt{pnns\_groups\_2} to numerical IDs using \texttt{LabelEncoder}.
+    \item \textit{Feature Augmentation}: Incorporate tag counts (e.g., \texttt{num\_NUT}, \texttt{num\_SWE}) from rule-based tagging as contextual features.
+\end{itemize}
+
+\textbf{Expected Data}: Token indices (\texttt{input\_ids=[12, 45, 67, 87]}), label IDs (\texttt{label\_G1=3}, \texttt{label\_G2=15}), and tag counts (\texttt{[num\_SWE=1, num\_PRO=1, ...]}).
+
+\textbf{Example}:
+\begin{quote}
+Input: ``Jelly Beans, sugar, gelatin'' $\to$ Tokens: [``jelly'', ``beans'', ``sugar'', ``gelatin''] $\to$ \texttt{input\_ids=[23, 24, 12, 87]} $\to$ Labels: \texttt{label\_G1=``Sugary snacks'' (3)}, \texttt{label\_G2=``Candies'' (15)} $\to$ Features: \texttt{[num\_SWE=1, num\_PRO=1, num\_QTY=0, ...]}.
+\end{quote}
+
+\textbf{Model Architecture}: The \texttt{LSTMG1} model in \texttt{LSTM2.py} processes inputs with a GloVe embedding layer (300D, trainable), followed by a 3-layer bidirectional LSTM (50 hidden units, dropout 0.3). Tag counts are transformed via a linear layer (14 to 50 units, ReLU), concatenated with LSTM outputs, and passed through a final linear layer to predict category probabilities.
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.48\textwidth}
+\centering
+\begin{lstlisting}[basicstyle=\ttfamily\scriptsize,breaklines=true,columns=flexible,frame=single,xleftmargin=0pt]
++---------------------------------------------+
+| Food Category Classification Pipeline       |
+|---------------------------------------------|
+| Input: product_name, ingredients_text       |
+|   e.g., "Jelly Beans, sugar, gelatin"       |
+|---------------------------------------------|
+|                                             |
+| 1. Text Consolidation                      |
+|    - Concatenate name, ingredients         |
+|    Out: "jelly beans sugar gelatin"        |
+|---------------------------------------------|
+|                                             |
+| 2. Cleaning & Tokenization                 |
+|    - Lowercase, remove punctuation         |
+|    - Regex: \b\w+\b                        |
+|    Out: ["jelly", "beans", "sugar", ...]   |
+|---------------------------------------------|
+|                                             |
+| 3. Vocabulary & Indexing                   |
+|    - Build vocab (min freq=5, <pad>, <unk>)|
+|    Out: input_ids [23, 24, 12, 87]         |
+|---------------------------------------------|
+|                                             |
+| 4. Label Encoding                          |
+|    - Encode pnns_groups_1, pnns_groups_2   |
+|    Out: label_G1=3, label_G2=15            |
+|---------------------------------------------|
+|                                             |
+| 5. Tag Count Features                      |
+|    - Use num_NUT, num_SWE, etc.            |
+|    Out: [num_SWE=1, num_PRO=1, ...]        |
+|---------------------------------------------|
+|                                             |
++---------------------------------------------+
+\end{lstlisting}
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
+\centering
+\begin{lstlisting}[basicstyle=\ttfamily\scriptsize,breaklines=true,columns=flexible,frame=single,xleftmargin=0pt]
++---------------------------------------------+
+| LSTM Model Architecture (LSTM2.py: LSTMG1)  |
+|---------------------------------------------|
+| Inputs:                                     |
+|  - input_ids: [batch, seq_len] = [32, 50]  |
+|  - num_TAG_features: [batch, 14]           |
+|---------------------------------------------|
+|                                             |
+| 1. Embedding Layer (embedding)             |
+|    - GloVe (300D, trainable)               |
+|    Out: [batch, seq_len, 300]              |
+|    - Dropout (drop_emb, p/1.5)             |
+|---------------------------------------------|
+|                                             |
+| 2. Bidirectional LSTM (lstm)               |
+|    - Layers: 3, Hidden: 50, Bidirectional  |
+|    Out: [num_layers, batch, 50]            |
+|    - Dropout (drop, p=0.3)                 |
+|---------------------------------------------|
+|                                             |
+| 3. Tag Feature Processing (extra_fc)       |
+|    - Linear: 14 -> 50, ReLU activation     |
+|    Out: [batch, 50]                        |
+|---------------------------------------------|
+|                                             |
+| 4. Concatenation & Output                  |
+|    - Concat: LSTM hidden + Tag feats       |
+|      [batch, 50] + [batch, 50] -> [batch, 100] |
+|    - Linear (combined_out): 100 -> n_classes |
+|    Out: Predictions [batch, n_classes]     |
+|      - G1: n_classes=9, G2: n_classes=38   |
+|---------------------------------------------|
+|                                             |
++---------------------------------------------+
+\end{lstlisting}
+\end{minipage}
+\caption{Classification pipeline (left) and LSTM architecture (right) for Food Category Classification, illustrating data flow and model structure.}
+\label{fig:classification_pipeline_model}
+\end{figure}
+
+\textbf{Impact}: This pipeline integrates semantic tags with text features, enhancing LSTM performance for imbalanced category prediction, aligning with the assignment’s classification objectives.
+
+
+
+\section{Training Procedure}
+
+\textbf{Setup}: The LSTM model for Food Category Classification is trained using PyTorch with GPU acceleration. We use cross-entropy loss for multi-class prediction of \texttt{pnns\_groups\_1} and \texttt{pnns\_groups\_2}. The Adam optimizer (learning rate 0.001) optimizes the model, with a batch size of 32 over 10 epochs.
+
+\textbf{Training Details}: Variable-length sequences are padded to the maximum length per batch using a custom batch preparation method. Dropout (0.3) and batch normalization reduce overfitting. Model weights are selected based on validation accuracy, with evaluation on a held-out test set.
+
+\begin{figure}[h]
+\centering
+\begin{lstlisting}[basicstyle=\ttfamily\scriptsize,breaklines=true,columns=flexible,frame=single,xleftmargin=0pt]
++---------------------------------------------+
+| Training Workflow for LSTM Model            |
+|---------------------------------------------|
+| Input: Batched Data                         |
+|   - input_ids: [batch, seq_len]            |
+|   - labels: [batch] (G1, G2)               |
+|---------------------------------------------|
+| 1. Forward Pass                            |
+|    - LSTM model (GloVe, BiLSTM, Linear)    |
+|    Out: Predictions [batch, n_classes]     |
+|---------------------------------------------|
+| 2. Loss Computation                        |
+|    - Cross-Entropy Loss                    |
+|    - Optimizer: Adam (lr=0.001)            |
+|---------------------------------------------|
+| 3. Training Loop                           |
+|    - Batch Size: 32, Epochs: 10            |
+|    - Dropout: 0.3, BatchNorm               |
+|---------------------------------------------|
+| Output: Trained Model                      |
+|   - Best weights via validation accuracy   |
++---------------------------------------------+
+\end{lstlisting}
+\caption{Training workflow for Food Category Classification using the LSTM model.}
+\label{fig:training_workflow}
+\end{figure}
+
+\textbf{Impact}: This setup ensures robust training, handling class imbalance and sequence variability, aligning with the assignment’s classification goals.
+
+
+\subsection{Nutritional Entity Tagging}
+
+\textbf{Task and Motivation}: Assign BIO tags (e.g., B-NUT, I-QTY, O) to tokens in \texttt{ingredients\_text} to extract nutritional entities like ``Protein: 10 g''. This task fulfills the assignment’s entity tagging requirement, enabling automated nutritional analysis for dietary applications.
+
+\textbf{Steps}:
+\begin{itemize}[noitemsep]
+    \item \textit{Load Tagged Data}: Use tokens and tags (e.g., NUT, QTY) from rule-based tagging output.
+    \item \textit{BIO Conversion}: Assign B- (beginning), I- (inside), or O (outside) prefixes (e.g., ``sugar cane'' $\to$ [``B-SWE'', ``I-SWE'']).
+    \item \textit{Label Vocabulary}: Map BIO tags to indices (e.g., \texttt{B-NUT=0}, \texttt{O=1}).
+    \item \textit{Input Generation}: Convert tokens to \texttt{input\_ids} and tags to \texttt{bio\_label\_ids}.
+    \item \textit{Feature Integration}: Include tag counts (e.g., \texttt{num\_NUT}, \texttt{num\_FLA}) as contextual features.
+\end{itemize}
+
+\textbf{Expected Data}: Token indices (\texttt{input\_ids=[12, 87, 10, 5]}), BIO label IDs ([0, 1, 2, 3] for [``B-SWE'', ``O'', ``B-QTY'', ``B-UNI'']), and tag counts.
+
+\textbf{Example}:
+\begin{quote}
+Input: ``sugar, gelatin, 10 mg'' $\to$ Tokens: [``sugar'', ``gelatin'', ``10'', ``mg''] $\to$ BIO Tags: [``B-SWE'', ``O'', ``B-QTY'', ``B-UNI''] $\to$ \texttt{input\_ids=[12, 87, 10, 5]}, Label IDs: [0, 1, 2, 3] $\to$ Features: \texttt{[num\_SWE=1, num\_PRO=1, num\_QTY=1, num\_UNI=1]}.
+\end{quote}
+
+\begin{figure}[h]
+\centering
+\begin{lstlisting}[basicstyle=\ttfamily\scriptsize,breaklines=true,columns=flexible,frame=single,xleftmargin=0pt]
++---------------------------------------------+
+| Nutritional Entity Tagging Pipeline         |
+|---------------------------------------------|
+| Input: ingredients_text                     |
+|   e.g., "sugar, gelatin, 10 mg"             |
+|---------------------------------------------|
+| 1. Load Tagged Data                        |
+|    - From rule-based tagging               |
+|    Out: ["sugar:SWE", "gelatin:PRO", ...]  |
+|---------------------------------------------|
+| 2. BIO Conversion                          |
+|    - Assign B-, I-, O prefixes             |
+|    Out: ["B-SWE", "O", "B-QTY", "B-UNI"]   |
+|---------------------------------------------|
+| 3. Label & Input Generation                |
+|    - BIO tags to indices                   |
+|    - Tokens to input_ids                   |
+|    Out: bio_label_ids [0, 1, 2, 3]         |
+|        input_ids [12, 87, 10, 5]           |
+|---------------------------------------------|
+| 4. Feature Integration                     |
+|    - Add tag counts (num_SWE, num_QTY)     |
+|    Out: [num_SWE=1, num_QTY=1, ...]        |
+|---------------------------------------------|
+| Output for Model                           |
+|   - input_ids, bio_label_ids, tag counts   |
++---------------------------------------------+
+\end{lstlisting}
+\caption{Pipeline for Nutritional Entity Tagging, showing BIO tag assignment and data preparation.}
+\label{fig:entity_tagging_pipeline}
+\end{figure}
+
+\textbf{Impact}: This pipeline extracts structured nutritional entities, supporting health applications and fulfilling assignment objectives.
+
+\subsection{Nutritional Attribute Prediction}
+
+\textbf{Task and Motivation}: Predict numerical attributes like \texttt{energy\_100g} and \texttt{proteins\_100g}, and categorical attributes like \texttt{nutriscore\_grade} and \texttt{pnns\_groups\_1}, to enable comprehensive nutritional profiling. This task supports health-aware applications by leveraging text and structured features.
+
+\textbf{Steps}:
+\begin{itemize}[noitemsep]
+    \item \textit{Field Combination}: Merge \texttt{product\_name}, \texttt{ingredients\_text}, and \texttt{categories} into a unified text field.
+    \item \textit{Cleaning and Tokenization}: Lowercase, remove punctuation, and split into tokens.
+    \item \textit{Numerical Target Normalization}: Clip outliers (±3 standard deviations), impute missing values with the median, and scale using a standard scaler.
+    \item \textit{Categorical Target Encoding}: Convert \texttt{nutriscore\_grade} and \texttt{pnns\_groups\_1} to numerical IDs.
+    \item \textit{Feature Encoding}: Normalize \texttt{additives\_n} and \texttt{serving\_quantity}; encode \texttt{brands} and \texttt{countries\_tags}.
+    \item \textit{Tag Count Integration}: Use counts like \texttt{num\_NUT} and \texttt{num\_FLA} from rule-based tagging.
+    \item \textit{Vocabulary Building}: Convert tokens to indices (\texttt{input\_ids}).
+\end{itemize}
+
+\textbf{Expected Data}: Token indices (\texttt{input\_ids=[23, 24, 12, 87]}), normalized numerical targets (\texttt{energy\_100g=0.5}), categorical label IDs (\texttt{nutriscore\_grade=2}), and features (\texttt{[additives\_n=0.3, serving\_quantity=1.2, brands\_id=45, num\_SWE=1, ...]}).
+
+\textbf{Example}:
+\begin{quote}
+Input: ``Jelly Beans, sugar, gelatin, categories: candies'' $\to$ Tokens: [``jelly'', ``beans'', ``sugar'', ``gelatin'', ``candies''] $\to$ \texttt{input\_ids=[23, 24, 12, 87, 90]} $\to$ Targets: \texttt{energy\_100g=0.5}, \texttt{proteins\_100g=0.1}, \texttt{nutriscore\_grade=``D'' (3)} $\to$ Features: \texttt{[additives\_n=0.2, serving\_quantity=0.8, brands\_id=45, num\_SWE=1, num\_PRO=1, ...]}.
+\end{quote}
+
+\section{Evaluation Metrics}
+
+\textbf{Overview}: We assess model performance across three tasks using task-specific metrics, reflecting classification, tagging, and regression objectives.
+
+\textbf{Food Category Classification}: For predicting \texttt{pnns\_groups\_1} and \texttt{pnns\_groups\_2}, we use overall accuracy and macro/weighted averages of precision, recall, and F1-score. These metrics account for class imbalance, ensuring fair evaluation across categories. Accuracy measures the proportion of correct predictions, while F1-score balances precision and recall for underrepresented classes.
+
+\textbf{Nutritional Entity Tagging}: For BIO tag prediction, we compute per-token precision, recall, and F1-score, focusing on entity-level correctness (e.g., correctly identifying ``Protein: 10 g''). These metrics evaluate sequence labeling accuracy, ignoring padded tokens.
+
+\textbf{Nutritional Attribute Prediction}: For numerical predictions (e.g., \texttt{energy\_100g}), we use Mean Absolute Error (MAE) and R-squared (R²). MAE measures prediction error magnitude, while R² assesses the proportion of variance explained. For categorical predictions (e.g., \texttt{nutriscore\_grade}), we apply the same classification metrics as above.
+
+\textbf{Rationale}: These metrics align with the assignment’s focus on classification and regression quality, providing a comprehensive performance evaluation across diverse tasks.
+
+\end{xaiArtifact>
+
+### Conclusion and Future Work
+<xaiArtifact artifact_id="35bb58a9-4cd1-4374-b60c-3f9507ab666a" artifact_version_id="28e1c9b2-63d8-42e3-9e15-b031e827a09a" title="Conclusion and Future Work" contentType="text/latex">
+\section{Conclusion and Future Work}
+
+\textbf{Summary}: This project developed a pipeline for food product analysis using the Open Food Facts dataset, covering rule-based token tagging, food category classification, nutritional entity tagging, and attribute prediction. The LSTM model, enhanced with GloVe embeddings and tag counts, effectively predicted categories (\texttt{pnns\_groups\_1/2}), entities (e.g., ``Protein: 10 g''), and nutritional values, demonstrating the feasibility of text-based nutritional analysis.
+
+\textbf{Key Findings}: The rule-based tagging system provided structured features, improving model performance. Classification and tagging tasks handled imbalanced data well, while attribute prediction offered insights into nutritional profiling, supporting health applications.
+
+\textbf{Future Work}:
+\begin{itemize}[noitemsep]
+    \item Incorporate image data for multimodal learning to enhance entity and attribute prediction.
+    \item Use structured nutrient fields as additional inputs for improved accuracy.
+    \item Address class imbalance with weighted loss or data augmentation techniques.
+    \item Explore transformer-based models for better sequence modeling and scalability.
+\end{itemize}
+
+This pipeline establishes a strong foundation for automated nutritional analysis, with potential for broader health-aware applications.
+
+%#############################
+
+
+\end{document}
+
