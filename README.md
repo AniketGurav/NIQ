@@ -1,6 +1,9 @@
-# NIQ
+
 # NIQ
 NIQ: Nutritional Metadata Classification on Open Food Facts Dataset
+
+NIQ.pdf contains detaled report of data exploration, model development and evaluation.
+
 This project develops a machine learning pipeline for food product classification and nutritional analysis using the Open Food Facts dataset. It focuses on four tasks: rule-based token tagging, food category classification, nutritional entity tagging, and attribute prediction, leveraging text features (ingredients_text) and structured data for health-aware applications.
 Project Overview
 The pipeline processes the Open Food Facts dataset to:
